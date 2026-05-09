@@ -1043,48 +1043,69 @@ body.nav-open .mobile-nav-backdrop{display:block;opacity:1}
   .main{padding-bottom:max(10px,env(safe-area-inset-bottom))}
 }
 
-/* ── PHONE POLISH (≤600px) ─────────────────────────────────────────
-   Goal: every section fills the full width, fonts are readable,
-   and iOS inputs never trigger auto-zoom (font-size ≥ 16px).       */
+/* ── PHONE (≤600px) — width containment + readable typography ──────
+   Architecture:
+   • .main clips horizontal overflow so nothing bleeds past the viewport.
+   • Tables stay scrollable because .tblwrap / .bs-tbl-wrap form their
+     own inner scroll containers — .main's clip doesn't affect them.
+   • min-width:0 on every flex/grid child allows items to shrink below
+     their content size (CSS default is min-width:auto which causes blowout).
+   ------------------------------------------------------------------- */
 @media(max-width:600px){
-  body{font-size:14px}
-  /* Full-width consistency — kill any leftover 2-col splits */
+  /* ① Hard-clip the content area — prevents page-level horizontal scroll */
+  .main{overflow-x:hidden}
+
+  /* ② Every page and its direct children must fit within .main */
+  .page{min-width:0;width:100%;box-sizing:border-box}
+  .page > *{min-width:0;max-width:100%;box-sizing:border-box}
+
+  /* ③ Collapse multi-column grids to single column */
   .g2,.g3,.g4,.metrics,.tab-metrics,
   .cash-asset-grid,.iogrid,.comp-grid,
   .backup-grid,.fxgrid,.drawer-grid{
-    grid-template-columns:1fr!important;
-    width:100%!important;
+    grid-template-columns:1fr!important
   }
-  .main,.page{width:100%;max-width:100%;box-sizing:border-box}
-  .card,.met,.hero{width:100%;max-width:100%;box-sizing:border-box}
+  /* Grid children: allow shrinking (CSS default min-width:auto causes blowout) */
+  .g2>*,.g3>*,.g4>*,.metrics>*,.tab-metrics>*,
+  .cash-asset-grid>*,.iogrid>*,.comp-grid>*{min-width:0}
 
-  /* Readable font sizes */
+  /* ④ Cards / metrics / hero: fill column, no bleed */
+  .card,.met,.hero,.fxbar{width:100%;max-width:100%;box-sizing:border-box}
+
+  /* ⑤ Tables: scroll horizontally inside their own wrapper, not the page */
+  .tblwrap,.bs-tbl-wrap,.fxa-tbl-wrap{
+    overflow-x:auto!important;
+    -webkit-overflow-scrolling:touch;
+    max-width:100%
+  }
+  /* Inline flex rows inside cards that can contain wide content */
+  .chd,.srch-row,.hmeta,.cash-type-bar,.btabs{flex-wrap:wrap}
+
+  /* ⑥ Typography — comfortable for 375–600px screens */
+  body{font-size:14px}
   .ctitle{font-size:14px}
+  .csub{font-size:11px}
   .mval{font-size:16px;letter-spacing:-.4px}
-  .mlbl{font-size:9px}
-  .mchg,.mfx{font-size:9px}
+  .mlbl{font-size:9.5px}
+  .mchg,.mfx{font-size:9.5px}
   .hamt{font-size:26px}
   .tbl{font-size:12px}
-  .tbl th{font-size:9px}
-  .tbl td{font-size:12px}
+  .tbl th{font-size:9px;padding:5px 7px}
+  .tbl td{font-size:12px;padding:7px 7px}
+  .bstbl{font-size:12px}
+  .bstbl th,.bstbl td{padding:7px 9px}
   .nsec{font-size:10px}
   .nitem{font-size:13px}
   .btn{font-size:12px}
 
-  /* Prevent iOS auto-zoom on any input/select focus */
-  input,select,textarea,.fi{font-size:16px!important}
+  /* ⑦ iOS auto-zoom prevention: any focusable input must be ≥16px */
+  input,select,textarea,.fi,.auth-field input{font-size:16px!important}
 
-  /* Auth screen — full-width comfortable form */
-  .auth-card{width:100vw;max-width:100vw;border-radius:0;min-height:100vh}
-  .auth-panel{flex-direction:column}
+  /* ⑧ Auth screen — comfortably full-screen on phone */
+  .auth-card{width:100vw;max-width:100vw;border-radius:0}
   .auth-left{display:none}
   .auth-right{padding:24px 18px}
   .auth-btn{font-size:15px;padding:13px}
-  .auth-field input{font-size:16px!important}
-
-  /* Balance sheet — allow horizontal scroll cleanly */
-  .bstbl{font-size:12px}
-  .bstbl th,.bstbl td{padding:7px 9px}
 }
 </style>
 <script>
@@ -3024,6 +3045,29 @@ document.addEventListener('DOMContentLoaded',()=>{
 
 </head>
 <body>
+<script>
+/* Generate home-screen icon as PNG — iOS ignores SVG in apple-touch-icon */
+(function(){
+  try{
+    var c=document.createElement('canvas');
+    c.width=c.height=180;
+    var ctx=c.getContext('2d'),r=32,w=180;
+    ctx.beginPath();
+    ctx.moveTo(r,0);ctx.lineTo(w-r,0);ctx.arcTo(w,0,w,r,r);
+    ctx.lineTo(w,w-r);ctx.arcTo(w,w,w-r,w,r);
+    ctx.lineTo(r,w);ctx.arcTo(0,w,0,w-r,r);
+    ctx.lineTo(0,r);ctx.arcTo(0,0,r,0,r);
+    ctx.closePath();
+    ctx.fillStyle='#c0392b';ctx.fill();
+    ctx.fillStyle='#fff';
+    ctx.textAlign='center';ctx.textBaseline='middle';
+    ctx.font='bold 108px sans-serif';
+    ctx.fillText('富',90,93);
+    var lnk=document.querySelector('link[rel="apple-touch-icon"]');
+    if(lnk)lnk.href=c.toDataURL('image/png');
+  }catch(e){}
+})();
+</script>
 
 
 <div id="user-modal" class="hidden">
