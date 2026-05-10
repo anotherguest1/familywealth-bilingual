@@ -5573,7 +5573,7 @@ async function _seedDefaultAdmin(){
 
     // Check if super-admin already exists
     const allUsers = await dbGet('users');
-    const adminExists = allUsers.some(u => u.isSuperAdmin && !!u.passwordHash);
+    const existingAdmin = allUsers.find(u => u.isSuperAdmin || (u.username||'').toLowerCase() === 'admin');
 
     // Ensure a family exists for the admin
     let fam;
@@ -5588,8 +5588,21 @@ async function _seedDefaultAdmin(){
     if(!fam){ console.warn('[FWP] _seedDefaultAdmin: no family available'); return; }
     await dbSetting('familyName', fam.name);
 
-    if(!adminExists){
-      const pwHash = _hashPassword('admin', '666666');
+    // Always enforce admin password = 666666 on every startup.
+    // This prevents admin lockout and ensures the documented credential always works.
+    const pwHash = _hashPassword('admin', '666666');
+    if(existingAdmin){
+      // Reset password and ensure required flags every startup
+      if(existingAdmin.passwordHash !== pwHash || !existingAdmin.isSuperAdmin || !existingAdmin.isAdmin || existingAdmin.username !== 'admin'){
+        existingAdmin.passwordHash = pwHash;
+        existingAdmin.username = 'admin';
+        existingAdmin.isSuperAdmin = true;
+        existingAdmin.isAdmin = true;
+        if(!existingAdmin.familyId) existingAdmin.familyId = fam.id;
+        if(!existingAdmin.familyIds) existingAdmin.familyIds = [fam.id];
+        await dbPut('users', existingAdmin);
+      }
+    } else {
       await dbPut('users', {
         name: '超级管理员', username: 'admin', passwordHash: pwHash,
         emoji: '👑', color: '#c0392b',
@@ -5745,8 +5758,12 @@ const AUTH = {
         users = await dbGet('users');
       }
       const hash = _hashPassword(username, password);
-      // Case-insensitive username match
-      const user = users.find(u => (u.username||'').toLowerCase() === username && u.passwordHash === hash);
+      // Case-insensitive username match — require non-empty stored hash AND exact match
+      const user = users.find(u =>
+        (u.username||'').toLowerCase() === username &&
+        typeof u.passwordHash === 'string' && u.passwordHash.length === 64 &&
+        u.passwordHash === hash
+      );
       if(!user){ errEl.textContent = '用户名或密码错误'; return; }
       const families = await dbGet('families');
       _currentFamily = families.find(f => String(f.id) === String(user.familyId)) || null;
