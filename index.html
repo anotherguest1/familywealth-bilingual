@@ -5542,18 +5542,25 @@ async function _getFamilyName(){
 // unpredictably between page loads, causing seed/login hash mismatches.
 function _hashPassword(username, password){
   const raw = 'fwp_pw:' + username.toLowerCase() + ':' + password;
-  // Seeded FNV-1a with 8 lanes and 2000 mixing rounds for diffusion
-  const seeds = [0x811c9dc5,0xdeadbeef,0xcafebabe,0xf00dface,
-                 0xabad1dea,0x1337c0de,0xfeedbeef,0x0badf00d];
-  let h = seeds.map(s => s >>> 0);
+  // xmur3 + mulberry32-style mixing to derive 8 lanes of 32-bit state.
+  // The previous FNV variant had a zero fixed point — every password
+  // collapsed to the same all-zero hash, letting any password log in.
+  // This algorithm is collision-resistant for non-adversarial input and
+  // never converges to a degenerate state.
+  let s = (1779033703 ^ raw.length) >>> 0;
   for(let i = 0; i < raw.length; i++){
-    const c = raw.charCodeAt(i);
-    h = h.map((v,j) => Math.imul(v ^ (c + j), 0x01000193) >>> 0);
+    s = Math.imul(s ^ raw.charCodeAt(i), 3432918353) >>> 0;
+    s = (((s << 13) | (s >>> 19)) >>> 0);
   }
-  for(let r = 0; r < 2000; r++){
-    h = h.map((v,j) => Math.imul(v ^ h[(j+1)%8], 0x27220A95) >>> 0);
+  const out = new Array(8);
+  for(let i = 0; i < 8; i++){
+    s = (s + 0x6D2B79F5) >>> 0;
+    let t = s;
+    t = Math.imul(t ^ (t >>> 15), t | 1) >>> 0;
+    t = (t ^ (t + Math.imul(t ^ (t >>> 7), t | 61))) >>> 0;
+    out[i] = ((t ^ (t >>> 14)) >>> 0);
   }
-  return h.map(n => n.toString(16).padStart(8,'0')).join(''); // 64-char hex
+  return out.map(n => n.toString(16).padStart(8,'0')).join(''); // 64-char hex
 }
 
 // ── Join code generator ───────────────────────────────────────────
