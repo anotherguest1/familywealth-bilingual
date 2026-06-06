@@ -6129,12 +6129,25 @@ function dbGet(s){
   });
 }
 function dbPut(s,o){
-  if(_useLSFallback) return _lsPut(s,o);
-  return _idbPut(s,o).catch(e => { if(_useLSFallback) return _lsPut(s,o); throw e; });
+  try{ if(window._fwSync) _fwSync.stamp(s,o); }catch(_e){}
+  var _fwAfter=function(r){ try{ if(window._fwSync) _fwSync.onPut(s,o); }catch(_e){} return r; };
+  if(_useLSFallback) return Promise.resolve(_lsPut(s,o)).then(_fwAfter);
+  return _idbPut(s,o).then(_fwAfter).catch(e => { if(_useLSFallback) return Promise.resolve(_lsPut(s,o)).then(_fwAfter); throw e; });
 }
 function dbDel(s,id){
-  if(_useLSFallback) return _lsDel(s,id);
-  return _idbDel(s,id).catch(e => { if(_useLSFallback) return _lsDel(s,id); throw e; });
+  return (async function(){
+    var _uid=null;
+    try{
+      if(window._fwSync && _fwSync.stores.has(s) && !_fwSync.applying){
+        var _all=await dbGet(s); var _rec=_all.find(function(r){return r.id===id;}); _uid=_rec&&_rec._uid;
+      }
+    }catch(_e){}
+    var _r;
+    if(_useLSFallback){ _r=await _lsDel(s,id); }
+    else{ try{ _r=await _idbDel(s,id); }catch(e){ if(_useLSFallback) _r=await _lsDel(s,id); else throw e; } }
+    try{ if(_uid && window._fwSync && !_fwSync.applying) _fwSync.onDel(s,_uid); }catch(_e){}
+    return _r;
+  })();
 }
 function dbClear(s){
   if(_useLSFallback) return _lsClear(s);
@@ -12226,6 +12239,122 @@ const UMPage = {
   <div>🏦 <strong>FamilyWealth Pro</strong></div>
   <div><button class="ib-ok" onclick="_installPWA()">安装</button><button class="ib-no" onclick="_dismissInstall()">稍后</button></div>
 </div>
+
+<!-- ===== FamilyWealth Cloud Sync (Firestore) — added for cross-device sync ===== -->
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script>
+(function(){
+  "use strict";
+  var firebaseConfig = {
+    apiKey: "AIzaSyABIHcJG4b0KZIqesZQ--_6BhpWeraRkSQ",
+    authDomain: "family-wealth-a3648.firebaseapp.com",
+    projectId: "family-wealth-a3648",
+    storageBucket: "family-wealth-a3648.firebasestorage.app",
+    messagingSenderId: "356355196718",
+    appId: "1:356355196718:web:f847e4868396ac96935cbf"
+  };
+  var SYNC_STORES = ['investments','cashAssets','savings','accounts','transactions','fixedAssets','borrowings','lendings','fxExchanges','members','families','users','userPrefs','fieldDefs','balanceSnapshots','netWorthSnapshots','investmentSnapshots','cashSnapshots'];
+  var LS_KEY = 'fw_cloud_id';
+  function uuid(){ return (self.crypto && crypto.randomUUID) ? crypto.randomUUID() : ('u'+Date.now()+'-'+Math.random().toString(36).slice(2)); }
+
+  var Sync = {
+    applying:false, stores:new Set(SYNC_STORES),
+    cloudId:null, db:null, root:null, unsub:[], state:'off', _rt:null,
+
+    stamp:function(s,o){ if(this.applying||!this.stores.has(s)||!o||typeof o!=='object') return; if(!o._uid) o._uid=uuid(); o._ts=Date.now(); },
+    _clean:function(o){ try{ return JSON.parse(JSON.stringify(o)); }catch(_){ var c={}; for(var k in o){ var v=o[k]; if(v!==undefined && typeof v!=='function') c[k]=v; } return c; } },
+    onPut:function(s,o){ if(this.applying||!this.root||!this.stores.has(s)||!o||!o._uid) return; var d=this._clean(o); d._deleted=false; if(!d._ts)d._ts=Date.now(); this.root.collection(s).doc(o._uid).set(d,{merge:true}).catch(function(e){console.warn('[sync put]',s,e.message);}); },
+    onDel:function(s,uid){ if(this.applying||!this.root||!uid) return; this.root.collection(s).doc(uid).set({_uid:uid,_deleted:true,_ts:Date.now()},{merge:true}).catch(function(e){console.warn('[sync del]',e.message);}); },
+
+    _applyDoc:async function(s,uid,data){
+      this.applying=true;
+      try{
+        var all=await dbGet(s); var local=all.find(function(r){return r._uid===uid;});
+        if(data._deleted){ if(local) await dbDel(s,local.id); }
+        else if(local && local._ts && data._ts && data._ts < local._ts){ /* local newer - keep */ }
+        else { var obj=Object.assign({},data); delete obj._deleted; if(local) obj.id=local.id; else delete obj.id; await dbPut(s,obj); }
+      }catch(e){ console.warn('[sync apply]',s,e.message); }
+      this.applying=false; this._scheduleRefresh();
+    },
+    _scheduleRefresh:function(){ var self=this; clearTimeout(this._rt); this._rt=setTimeout(function(){
+        try{ if(typeof renderCurrentPage==='function') renderCurrentPage(); }catch(_){}
+        try{ if(typeof renderFxBar==='function') renderFxBar(); }catch(_){}
+        self._panel();
+      },400); },
+    _listen:function(){
+      var self=this; this._stop();
+      SYNC_STORES.forEach(function(s){
+        var u=self.root.collection(s).onSnapshot(function(snap){
+          snap.docChanges().forEach(function(ch){
+            if(ch.doc.metadata.hasPendingWrites) return;
+            var d=ch.doc.data(); if(d&&d._uid) self._applyDoc(s,d._uid,d);
+          });
+        }, function(err){ console.warn('[sync listen]',s,err.message); });
+        self.unsub.push(u);
+      });
+    },
+    _stop:function(){ this.unsub.forEach(function(u){try{u();}catch(_){}}); this.unsub=[]; },
+    _pushAll:async function(){
+      this.state='pushing'; this._panel();
+      for(var i=0;i<SYNC_STORES.length;i++){ var s=SYNC_STORES[i];
+        try{ var all=await dbGet(s); for(var j=0;j<all.length;j++){ var o=all[j]; if(o&&typeof o==='object'){ if(!o._uid){ this.stamp(s,o); await dbPut(s,o); } else { this.onPut(s,o); } } } }
+        catch(e){ console.warn('[sync pushAll]',s,e.message); }
+      }
+      this.state='on'; this._panel();
+    },
+    connect:async function(cloudId){
+      try{
+        this.cloudId=cloudId; localStorage.setItem(LS_KEY,cloudId); this.state='connecting'; this._panel();
+        if(!firebase.apps.length) firebase.initializeApp(firebaseConfig);
+        this.db=firebase.firestore();
+        try{ await this.db.enablePersistence({synchronizeTabs:true}); }catch(_){}
+        try{ await firebase.auth().signInAnonymously(); }catch(e){ console.warn('[sync auth]',e.message); }
+        this.root=this.db.collection('families').doc(cloudId);
+        this._listen();
+        await this._pushAll();
+        this.state='on'; this._panel();
+      }catch(e){ console.error('[sync connect]',e); this.state='error'; this._panel(); }
+    },
+    disconnect:function(){ this._stop(); this.root=null; this.cloudId=null; this.state='off'; localStorage.removeItem(LS_KEY); this._panel(); },
+
+    startNew:function(){ var id=uuid(); this.connect(id); },
+    join:function(){ var id=prompt('Paste the Cloud Sync ID from your other device:'); if(id&&id.trim()) this.connect(id.trim()); },
+    copyId:function(){ if(!this.cloudId) return; try{ navigator.clipboard.writeText(this.cloudId); alert('Cloud Sync ID copied:\n'+this.cloudId); }catch(_){ prompt('Copy this Cloud Sync ID:', this.cloudId); } },
+
+    _panel:function(){
+      var el=document.getElementById('fw-sync-panel');
+      if(!el){ el=document.createElement('div'); el.id='fw-sync-panel';
+        el.style.cssText='position:fixed;left:14px;bottom:14px;z-index:99999;font-family:system-ui,Arial,sans-serif;font-size:12px;background:#1f3a5f;color:#fff;border-radius:10px;box-shadow:0 4px 16px rgba(0,0,0,.25);padding:8px 10px;max-width:260px;line-height:1.4';
+        document.body.appendChild(el); }
+      var dot=({off:'#888',connecting:'#e6a700',pushing:'#e6a700',on:'#2ecc71',error:'#e74c3c'})[this.state]||'#888';
+      var label=({off:'Not synced',connecting:'Connecting...',pushing:'Syncing...',on:'Synced',error:'Sync error'})[this.state]||'';
+      var html='<div style="display:flex;align-items:center;gap:6px;font-weight:bold"><span style="width:9px;height:9px;border-radius:50%;background:'+dot+';display:inline-block"></span>Cloud Sync &middot; '+label+'</div>';
+      if(this.state==='on'||this.state==='pushing'){
+        var shortId=(this.cloudId||'').slice(0,8)+'...';
+        html+='<div style="margin-top:6px;opacity:.85">ID: '+shortId+'</div>'+
+              '<div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap">'+
+              '<button onclick="_fwSync.copyId()" style="cursor:pointer;border:0;border-radius:6px;padding:4px 8px;background:#2e6fb7;color:#fff">Copy ID</button>'+
+              '<button onclick="_fwSync.disconnect()" style="cursor:pointer;border:0;border-radius:6px;padding:4px 8px;background:#475569;color:#fff">Disconnect</button>'+
+              '</div>';
+      } else {
+        html+='<div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap">'+
+              '<button onclick="_fwSync.startNew()" style="cursor:pointer;border:0;border-radius:6px;padding:4px 8px;background:#2ecc71;color:#fff">Start new cloud</button>'+
+              '<button onclick="_fwSync.join()" style="cursor:pointer;border:0;border-radius:6px;padding:4px 8px;background:#2e6fb7;color:#fff">Join existing...</button>'+
+              '</div>';
+      }
+      el.innerHTML=html;
+    }
+  };
+  window._fwSync=Sync;
+  function boot(){ try{ Sync._panel(); }catch(_){}
+    var id=localStorage.getItem(LS_KEY);
+    if(id){ Sync.connect(id); }
+  }
+  if(document.readyState!=='loading') setTimeout(boot,1800); else document.addEventListener('DOMContentLoaded',function(){setTimeout(boot,1800);});
+})();
+</script>
 
 </body>
 </html>
