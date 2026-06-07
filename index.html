@@ -12281,7 +12281,11 @@ const UMPage = {
     'https://www.gstatic.cn/firebasejs/'+SDK_VER+'/',    // Google China mirror
     'https://cdn.jsdelivr.net/npm/firebase@'+SDK_VER+'/' // jsDelivr (mirrors npm)
   ];
-  var SDK_FILES=['firebase-app-compat.js','firebase-auth-compat.js','firebase-firestore-compat.js'];
+  var SDK_FILES=[
+    {f:'firebase-app-compat.js',       ok:function(){return typeof firebase!=='undefined';}},
+    {f:'firebase-auth-compat.js',      ok:function(){return typeof firebase!=='undefined'&&!!firebase.auth;}},
+    {f:'firebase-firestore-compat.js', ok:function(){return typeof firebase!=='undefined'&&!!firebase.firestore;}}
+  ];
   function _loadScript(url){
     return new Promise(function(res,rej){
       var s=document.createElement('script'); s.src=url; s.async=false;
@@ -12297,12 +12301,20 @@ const UMPage = {
     if(_sdkP) return _sdkP;
     _sdkP=(async function(){
       for(var f=0;f<SDK_FILES.length;f++){
+        var item=SDK_FILES[f];
+        if(item.ok()) continue; // already loaded
         var ok=false, lastErr=null;
         for(var c=0;c<SDK_CDNS.length;c++){
-          try{ await _loadScript(SDK_CDNS[c]+SDK_FILES[f]); ok=true; break; }
-          catch(e){ lastErr=e; }
+          try{
+            await _loadScript(SDK_CDNS[c]+item.f);
+            // A 200 that isn't the real SDK (e.g. SPA-fallback HTML) loads
+            // without error but leaves the global undefined — treat as a miss
+            // and try the next source.
+            if(item.ok()){ ok=true; break; }
+            lastErr=new Error('loaded but SDK global missing from '+SDK_CDNS[c]);
+          }catch(e){ lastErr=e; }
         }
-        if(!ok){ _sdkP=null; throw (lastErr||new Error('Could not load '+SDK_FILES[f])); }
+        if(!ok){ _sdkP=null; throw (lastErr||new Error('Could not load '+item.f)); }
       }
       return (typeof firebase!=='undefined' && !!firebase.firestore);
     })();
