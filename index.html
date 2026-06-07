@@ -6130,7 +6130,12 @@ function dbGet(s){
 }
 function dbPut(s,o){
   try{ if(window._fwSync) _fwSync.stamp(s,o); }catch(_e){}
-  var _fwAfter=function(r){ try{ if(window._fwSync) _fwSync.onPut(s,o); }catch(_e){} return r; };
+  var _fwAfter=function(r){
+    // Write the auto-generated key back onto the object so a follow-up dbPut on
+    // the same object updates this record instead of inserting a duplicate.
+    try{ if(o && (o.id===undefined||o.id===null||o.id==='') && r!==undefined && r!==null) o.id=r; }catch(_e){}
+    try{ if(window._fwSync) _fwSync.onPut(s,o); }catch(_e){} return r;
+  };
   if(_useLSFallback) return Promise.resolve(_lsPut(s,o)).then(_fwAfter);
   return _idbPut(s,o).then(_fwAfter).catch(e => { if(_useLSFallback) return Promise.resolve(_lsPut(s,o)).then(_fwAfter); throw e; });
 }
@@ -9921,6 +9926,20 @@ async function saveRecord(){
   // capture owner if present
   const ownerEl=document.getElementById('mf-owner');
   if(ownerEl)rec.owner=ownerEl.value;
+  // ── USER: stamp ownedBy + familyId (mandatory for data isolation) ──
+  // Must run BEFORE the single dbPut below. Previously this was a *second*
+  // dbPut after an id-less insert, which made IndexedDB auto-assign a new id
+  // every time and create a duplicate record on every add.
+  try{
+    const _vis = document.querySelector('input[name="rec-vis"]:checked');
+    rec.ownedBy = (_vis && _vis.value === 'private' && _currentUser) ? _currentUser.id : null;
+    // Always stamp familyId — every record must belong to a family
+    if(_currentUser?.familyId){
+      rec.familyId = _currentUser.familyId;
+    } else if(!rec.familyId){
+      console.warn('[FWP] Saving record without familyId — user not logged in?');
+    }
+  }catch(_e){ console.warn('[FWP] save stamp:', _e); }
   if(_editId){
     if(_beforeEdit)_undoPush({action:'edit',store:ds,before:_beforeEdit});
     rec.id=_editId;await dbPut(ds,rec);toast('已更新 ✓',false,true);
@@ -9946,18 +9965,6 @@ async function saveRecord(){
     }
   }
 
-  // ── USER: stamp ownedBy + familyId (mandatory for data isolation) ──
-  try{
-    const _vis = document.querySelector('input[name="rec-vis"]:checked');
-    rec.ownedBy = (_vis && _vis.value === 'private' && _currentUser) ? _currentUser.id : null;
-    // Always stamp familyId — every record must belong to a family
-    if(_currentUser?.familyId){
-      rec.familyId = _currentUser.familyId;
-    } else if(!rec.familyId){
-      console.warn('[FWP] Saving record without familyId — user not logged in?');
-    }
-    await dbPut(ds, rec);
-  }catch(_e){ console.warn('[FWP] save stamp:', _e); }
   closeModal('add-modal');
   await renderCurrentPage();
 }
@@ -12261,22 +12268,31 @@ const UMPage = {
 
   var Sync = {
     applying:false, stores:new Set(SYNC_STORES),
-    cloudId:null, db:null, root:null, unsub:[], state:'off', _rt:null,
+    cloudId:null, db:null, root:null, unsub:[], state:'off', _rt:null, lastErr:'', _applyN:0,
 
+    // Surface a real Firestore/auth failure in the panel instead of silently
+    // swallowing it. Permission/auth errors mean nothing is actually syncing.
+    _maybeFail:function(e){
+      var m=(e&&(e.message||e.code))||String(e); this.lastErr=m;
+      if(/permission|insufficient|unauthenticat|PERMISSION_DENIED|auth/i.test(m)){ this.state='error'; this._panel(); }
+    },
     stamp:function(s,o){ if(this.applying||!this.stores.has(s)||!o||typeof o!=='object') return; if(!o._uid) o._uid=uuid(); o._ts=Date.now(); },
     _clean:function(o){ try{ return JSON.parse(JSON.stringify(o)); }catch(_){ var c={}; for(var k in o){ var v=o[k]; if(v!==undefined && typeof v!=='function') c[k]=v; } return c; } },
-    onPut:function(s,o){ if(this.applying||!this.root||!this.stores.has(s)||!o||!o._uid) return; var d=this._clean(o); d._deleted=false; if(!d._ts)d._ts=Date.now(); this.root.collection(s).doc(o._uid).set(d,{merge:true}).catch(function(e){console.warn('[sync put]',s,e.message);}); },
-    onDel:function(s,uid){ if(this.applying||!this.root||!uid) return; this.root.collection(s).doc(uid).set({_uid:uid,_deleted:true,_ts:Date.now()},{merge:true}).catch(function(e){console.warn('[sync del]',e.message);}); },
+    onPut:function(s,o){ if(this.applying||!this.root||!this.stores.has(s)||!o||!o._uid) return; var self=this; var d=this._clean(o); d._deleted=false; if(!d._ts)d._ts=Date.now(); this.root.collection(s).doc(o._uid).set(d,{merge:true}).catch(function(e){console.warn('[sync put]',s,e.message); self._maybeFail(e);}); },
+    onDel:function(s,uid){ if(this.applying||!this.root||!uid) return; var self=this; this.root.collection(s).doc(uid).set({_uid:uid,_deleted:true,_ts:Date.now()},{merge:true}).catch(function(e){console.warn('[sync del]',e.message); self._maybeFail(e);}); },
 
     _applyDoc:async function(s,uid,data){
-      this.applying=true;
+      // Ref-count concurrent applies so `applying` only clears once the *last*
+      // one finishes — a plain boolean cleared mid-burst and let an applied doc
+      // get re-pushed to Firestore (sync echo / write amplification).
+      this._applyN++; this.applying=true;
       try{
         var all=await dbGet(s); var local=all.find(function(r){return r._uid===uid;});
         if(data._deleted){ if(local) await dbDel(s,local.id); }
         else if(local && local._ts && data._ts && data._ts < local._ts){ /* local newer - keep */ }
         else { var obj=Object.assign({},data); delete obj._deleted; if(local) obj.id=local.id; else delete obj.id; await dbPut(s,obj); }
       }catch(e){ console.warn('[sync apply]',s,e.message); }
-      this.applying=false; this._scheduleRefresh();
+      finally{ if(--this._applyN<=0){ this._applyN=0; this.applying=false; } this._scheduleRefresh(); }
     },
     _scheduleRefresh:function(){ var self=this; clearTimeout(this._rt); this._rt=setTimeout(function(){
         try{ if(typeof renderCurrentPage==='function') renderCurrentPage(); }catch(_){}
@@ -12291,7 +12307,7 @@ const UMPage = {
             if(ch.doc.metadata.hasPendingWrites) return;
             var d=ch.doc.data(); if(d&&d._uid) self._applyDoc(s,d._uid,d);
           });
-        }, function(err){ console.warn('[sync listen]',s,err.message); });
+        }, function(err){ console.warn('[sync listen]',s,err.message); self._maybeFail(err); });
         self.unsub.push(u);
       });
     },
@@ -12306,16 +12322,20 @@ const UMPage = {
     },
     connect:async function(cloudId){
       try{
-        this.cloudId=cloudId; localStorage.setItem(LS_KEY,cloudId); this.state='connecting'; this._panel();
+        this.cloudId=cloudId; this.lastErr=''; localStorage.setItem(LS_KEY,cloudId); this.state='connecting'; this._panel();
+        if(typeof firebase==='undefined'||!firebase.firestore){ throw new Error('Firebase SDK failed to load (check network/CDN access).'); }
         if(!firebase.apps.length) firebase.initializeApp(firebaseConfig);
         this.db=firebase.firestore();
         try{ await this.db.enablePersistence({synchronizeTabs:true}); }catch(_){}
-        try{ await firebase.auth().signInAnonymously(); }catch(e){ console.warn('[sync auth]',e.message); }
+        // Anonymous auth is REQUIRED — without it Firestore rules reject every
+        // read/write. Surface the failure instead of pretending we're synced.
+        try{ await firebase.auth().signInAnonymously(); }
+        catch(e){ console.warn('[sync auth]',e.message); this.lastErr='Auth failed: '+e.message+' — enable Anonymous sign-in in Firebase.'; this.state='error'; this._panel(); return; }
         this.root=this.db.collection('families').doc(cloudId);
         this._listen();
         await this._pushAll();
-        this.state='on'; this._panel();
-      }catch(e){ console.error('[sync connect]',e); this.state='error'; this._panel(); }
+        if(this.state!=='error'){ this.state='on'; this._panel(); }
+      }catch(e){ console.error('[sync connect]',e); this.lastErr=(e&&e.message)||String(e); this.state='error'; this._panel(); }
     },
     disconnect:function(){ this._stop(); this.root=null; this.cloudId=null; this.state='off'; localStorage.removeItem(LS_KEY); this._panel(); },
 
@@ -12336,6 +12356,14 @@ const UMPage = {
         html+='<div style="margin-top:6px;opacity:.85">ID: '+shortId+'</div>'+
               '<div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap">'+
               '<button onclick="_fwSync.copyId()" style="cursor:pointer;border:0;border-radius:6px;padding:4px 8px;background:#2e6fb7;color:#fff">Copy ID</button>'+
+              '<button onclick="_fwSync.disconnect()" style="cursor:pointer;border:0;border-radius:6px;padding:4px 8px;background:#475569;color:#fff">Disconnect</button>'+
+              '</div>';
+      } else if(this.state==='error'){
+        var em=String(this.lastErr||'Unknown error').replace(/[<>]/g,'');
+        html+='<div style="margin-top:6px;opacity:.9;word-break:break-word">'+em+'</div>'+
+              '<div style="margin-top:4px;opacity:.7;font-size:11px">Fix: enable Anonymous sign-in &amp; allow Firestore rules for authenticated users.</div>'+
+              '<div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap">'+
+              (this.cloudId?'<button onclick="_fwSync.connect(_fwSync.cloudId)" style="cursor:pointer;border:0;border-radius:6px;padding:4px 8px;background:#e6a700;color:#fff">Retry</button>':'')+
               '<button onclick="_fwSync.disconnect()" style="cursor:pointer;border:0;border-radius:6px;padding:4px 8px;background:#475569;color:#fff">Disconnect</button>'+
               '</div>';
       } else {
