@@ -3038,7 +3038,7 @@ const FIELD_NORM = {
 })();
 
 if('serviceWorker' in navigator){
-  const SW=`const C='fw-v3';self.addEventListener('install',e=>{e.waitUntil(caches.open(C).then(c=>c.addAll(['./',])).then(()=>self.skipWaiting()))});self.addEventListener('activate',e=>{e.waitUntil(caches.keys().then(ks=>Promise.all(ks.filter(k=>k!==C).map(k=>caches.delete(k)))).then(()=>self.clients.claim()))});self.addEventListener('fetch',e=>{if(e.request.method!=='GET')return;const u=e.request.url;if(u.includes('googleapis')||u.includes('cdnjs')||u.includes('fonts')){e.respondWith(fetch(e.request).catch(()=>caches.match(e.request)));return;}e.respondWith(caches.match(e.request).then(c=>{if(c)return c;return fetch(e.request).then(r=>{if(r.status===200){const cl=r.clone();caches.open(C).then(ca=>ca.put(e.request,cl));}return r;});}));});`;
+  const SW=`const C='fw-v5';self.addEventListener('install',e=>{e.waitUntil(caches.open(C).then(c=>c.addAll(['./',])).then(()=>self.skipWaiting()))});self.addEventListener('activate',e=>{e.waitUntil(caches.keys().then(ks=>Promise.all(ks.filter(k=>k!==C).map(k=>caches.delete(k)))).then(()=>self.clients.claim()))});self.addEventListener('fetch',e=>{if(e.request.method!=='GET')return;const u=e.request.url;if(u.includes('googleapis')||u.includes('firebaseio')||u.includes('identitytoolkit'))return;if(e.request.mode==='navigate'){e.respondWith(fetch(e.request).then(r=>{const cl=r.clone();caches.open(C).then(ca=>ca.put('./',cl));return r;}).catch(()=>caches.match(e.request).then(c=>c||caches.match('./'))));return;}e.respondWith(caches.match(e.request).then(c=>c||fetch(e.request).then(r=>{if(r&&(r.ok||r.type==='opaque')){const cl=r.clone();caches.open(C).then(ca=>ca.put(e.request,cl));}return r;}).catch(()=>caches.match(e.request).then(c=>c||new Response('',{status:503})))));});`;
   navigator.serviceWorker.register(URL.createObjectURL(new Blob([SW],{type:'application/javascript'})),{scope:'./'}).catch(()=>{});
 }
 
@@ -4383,7 +4383,7 @@ function debounce(fn,ms=300){let t;return(...a)=>{clearTimeout(t);t=setTimeout((
     icons:[{src:"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='20' fill='%23c0392b'/%3E%3Ctext y='.9em' font-size='80' x='10' fill='white'%3E%E5%AF%8C%3C/text%3E%3C/svg%3E",sizes:'512x512',type:'image/svg+xml'}]};
   try{const b=new Blob([JSON.stringify(manifest)],{type:'application/manifest+json'});const u=URL.createObjectURL(b);const l=document.getElementById('pwa-manifest')||document.createElement('link');l.rel='manifest';l.href=u;if(!l.parentNode)document.head.appendChild(l);}catch(e){}
   if('serviceWorker' in navigator && location.protocol!=='file:'){
-    const sw=`const C='fwp-v8';self.addEventListener('install',e=>{e.waitUntil(caches.open(C).then(c=>c.addAll(['./'])).catch(()=>{}));self.skipWaiting();});self.addEventListener('activate',e=>{e.waitUntil(caches.keys().then(ks=>Promise.all(ks.filter(k=>k!==C).map(k=>caches.delete(k)))));self.clients.claim();});self.addEventListener('fetch',e=>{if(e.request.method!=='GET')return;e.respondWith(caches.match(e.request).then(r=>r||(fetch(e.request).then(resp=>{if(resp&&resp.status===200){const cl=resp.clone();caches.open(C).then(c=>c.put(e.request,cl));}return resp;}).catch(()=>new Response('Offline',{status:503})))));});`;
+    const sw=`const C='fwp-v10';self.addEventListener('install',e=>{e.waitUntil(caches.open(C).then(c=>c.addAll(['./'])).catch(()=>{}));self.skipWaiting();});self.addEventListener('activate',e=>{e.waitUntil(caches.keys().then(ks=>Promise.all(ks.filter(k=>k!==C).map(k=>caches.delete(k)))));self.clients.claim();});self.addEventListener('fetch',e=>{if(e.request.method!=='GET')return;const u=e.request.url;if(u.includes('googleapis')||u.includes('firebaseio')||u.includes('identitytoolkit'))return;if(e.request.mode==='navigate'){e.respondWith(fetch(e.request).then(r=>{const cl=r.clone();caches.open(C).then(c=>c.put('./',cl));return r;}).catch(()=>caches.match(e.request).then(c=>c||caches.match('./'))));return;}e.respondWith(caches.match(e.request).then(r=>r||(fetch(e.request).then(resp=>{if(resp&&(resp.ok||resp.type==='opaque')){const cl=resp.clone();caches.open(C).then(c=>c.put(e.request,cl));}return resp;}).catch(()=>caches.match(e.request).then(c=>c||new Response('',{status:503}))))));});`;
     try{const b=new Blob([sw],{type:'application/javascript'});navigator.serviceWorker.register(URL.createObjectURL(b),{scope:'./'}).catch(()=>{});}catch(e){}
   }
   let _dp=null;
@@ -12248,9 +12248,11 @@ const UMPage = {
 </div>
 
 <!-- ===== FamilyWealth Cloud Sync (Firestore) — added for cross-device sync ===== -->
-<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<!-- The Firebase SDK is loaded dynamically (with regional fallback CDNs + retry)
+     inside the script below, instead of static <script src> tags. A blocking
+     static tag to www.gstatic.com hangs the page where Google is blocked (e.g.
+     mainland China) or returns nothing offline, which is what produced the
+     "Firebase SDK failed to load" error. -->
 <script>
 (function(){
   "use strict";
@@ -12265,6 +12267,59 @@ const UMPage = {
   var SYNC_STORES = ['investments','cashAssets','savings','accounts','transactions','fixedAssets','borrowings','lendings','fxExchanges','members','families','users','userPrefs','fieldDefs','balanceSnapshots','netWorthSnapshots','investmentSnapshots','cashSnapshots'];
   var LS_KEY = 'fw_cloud_id';
   function uuid(){ return (self.crypto && crypto.randomUUID) ? crypto.randomUUID() : ('u'+Date.now()+'-'+Math.random().toString(36).slice(2)); }
+
+  // ── Resilient Firebase SDK loader ──────────────────────────────────────────
+  // Load the compat SDK at runtime, trying several CDNs in order so a single
+  // blocked/unreachable host (gstatic is unreliable in mainland China, blocked
+  // by some privacy blockers/firewalls) doesn't kill cloud sync. Files load
+  // sequentially because firestore/auth depend on the firebase global from app.
+  var SDK_VER='10.12.2';
+  var SDK_CDNS=[
+    './',                                                // self-hosted next to index.html (most reliable where Google is blocked)
+    './vendor/firebase/',                                // self-hosted (vendor folder)
+    'https://www.gstatic.com/firebasejs/'+SDK_VER+'/',   // Google global
+    'https://www.gstatic.cn/firebasejs/'+SDK_VER+'/',    // Google China mirror
+    'https://cdn.jsdelivr.net/npm/firebase@'+SDK_VER+'/' // jsDelivr (mirrors npm)
+  ];
+  var SDK_FILES=[
+    {f:'firebase-app-compat.js',       ok:function(){return typeof firebase!=='undefined';}},
+    {f:'firebase-auth-compat.js',      ok:function(){return typeof firebase!=='undefined'&&!!firebase.auth;}},
+    {f:'firebase-firestore-compat.js', ok:function(){return typeof firebase!=='undefined'&&!!firebase.firestore;}}
+  ];
+  function _loadScript(url){
+    return new Promise(function(res,rej){
+      var s=document.createElement('script'); s.src=url; s.async=false;
+      var done=false, to=setTimeout(function(){ if(!done){ done=true; s.onload=s.onerror=null; try{s.remove();}catch(_){} rej(new Error('timeout '+url)); } }, 12000);
+      s.onload=function(){ if(done)return; done=true; clearTimeout(to); res(); };
+      s.onerror=function(){ if(done)return; done=true; clearTimeout(to); try{s.remove();}catch(_){} rej(new Error('failed '+url)); };
+      document.head.appendChild(s);
+    });
+  }
+  var _sdkP=null;
+  function loadSDK(){
+    if(typeof firebase!=='undefined' && firebase.firestore) return Promise.resolve(true);
+    if(_sdkP) return _sdkP;
+    _sdkP=(async function(){
+      for(var f=0;f<SDK_FILES.length;f++){
+        var item=SDK_FILES[f];
+        if(item.ok()) continue; // already loaded
+        var ok=false, lastErr=null;
+        for(var c=0;c<SDK_CDNS.length;c++){
+          try{
+            await _loadScript(SDK_CDNS[c]+item.f);
+            // A 200 that isn't the real SDK (e.g. SPA-fallback HTML) loads
+            // without error but leaves the global undefined — treat as a miss
+            // and try the next source.
+            if(item.ok()){ ok=true; break; }
+            lastErr=new Error('loaded but SDK global missing from '+SDK_CDNS[c]);
+          }catch(e){ lastErr=e; }
+        }
+        if(!ok){ _sdkP=null; throw (lastErr||new Error('Could not load '+item.f)); }
+      }
+      return (typeof firebase!=='undefined' && !!firebase.firestore);
+    })();
+    return _sdkP;
+  }
 
   var Sync = {
     applying:false, stores:new Set(SYNC_STORES),
@@ -12323,7 +12378,11 @@ const UMPage = {
     connect:async function(cloudId){
       try{
         this.cloudId=cloudId; this.lastErr=''; localStorage.setItem(LS_KEY,cloudId); this.state='connecting'; this._panel();
-        if(typeof firebase==='undefined'||!firebase.firestore){ throw new Error('Firebase SDK failed to load (check network/CDN access).'); }
+        if(typeof firebase==='undefined'||!firebase.firestore){
+          try{ await loadSDK(); }
+          catch(e){ throw new Error('Firebase SDK failed to load from all CDNs — network/region may block Google.'); }
+        }
+        if(typeof firebase==='undefined'||!firebase.firestore){ throw new Error('Firebase SDK failed to load from all CDNs — network/region may block Google.'); }
         if(!firebase.apps.length) firebase.initializeApp(firebaseConfig);
         this.db=firebase.firestore();
         try{ await this.db.enablePersistence({synchronizeTabs:true}); }catch(_){}
@@ -12346,7 +12405,7 @@ const UMPage = {
     _panel:function(){
       var el=document.getElementById('fw-sync-panel');
       if(!el){ el=document.createElement('div'); el.id='fw-sync-panel';
-        el.style.cssText='position:fixed;left:14px;bottom:14px;z-index:99999;font-family:system-ui,Arial,sans-serif;font-size:12px;background:#1f3a5f;color:#fff;border-radius:10px;box-shadow:0 4px 16px rgba(0,0,0,.25);padding:8px 10px;max-width:260px;line-height:1.4';
+        el.style.cssText='position:fixed;left:calc(14px + env(safe-area-inset-left,0px));bottom:calc(14px + env(safe-area-inset-bottom,0px));z-index:2147483000;font-family:system-ui,Arial,sans-serif;font-size:12px;background:#1f3a5f;color:#fff;border-radius:10px;box-shadow:0 4px 16px rgba(0,0,0,.25);padding:8px 10px;max-width:260px;line-height:1.4';
         document.body.appendChild(el); }
       var dot=({off:'#888',connecting:'#e6a700',pushing:'#e6a700',on:'#2ecc71',error:'#e74c3c'})[this.state]||'#888';
       var label=({off:'Not synced',connecting:'Connecting...',pushing:'Syncing...',on:'Synced',error:'Sync error'})[this.state]||'';
@@ -12378,9 +12437,17 @@ const UMPage = {
   window._fwSync=Sync;
   function boot(){ try{ Sync._panel(); }catch(_){}
     var id=localStorage.getItem(LS_KEY);
-    if(id){ Sync.connect(id); }
+    if(id){ setTimeout(function(){ Sync.connect(id); }, 600); }
   }
-  if(document.readyState!=='loading') setTimeout(boot,1800); else document.addEventListener('DOMContentLoaded',function(){setTimeout(boot,1800);});
+  function _bootNow(){
+    if(!document.body){ return setTimeout(_bootNow,50); } // body not parsed yet
+    boot();
+    // Re-assert the panel a couple of times in case it mounted too early or the
+    // app re-rendered over it, so the sync entry point is always reachable.
+    setTimeout(function(){ try{ Sync._panel(); }catch(_){} }, 1200);
+    setTimeout(function(){ try{ Sync._panel(); }catch(_){} }, 3000);
+  }
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',_bootNow); else _bootNow();
 })();
 </script>
 
