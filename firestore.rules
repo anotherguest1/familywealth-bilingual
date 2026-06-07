@@ -1,0 +1,26 @@
+// Firestore security rules for the FamilyWealth Cloud Sync feature.
+//
+// The app signs in anonymously (firebase.auth().signInAnonymously()) and stores
+// every synced record under:  families/{cloudId}/{collection}/{docId}
+//
+// If sync shows "Sync error" with a permission-denied message, it is almost
+// always because these rules were never deployed (the default rules deny all
+// reads and writes). Deploy with:  firebase deploy --only firestore:rules
+// or paste the contents below into Firebase console → Firestore → Rules.
+//
+// You must ALSO enable Anonymous sign-in:
+//   Firebase console → Authentication → Sign-in method → Anonymous → Enable
+//
+// NOTE: This grants any anonymous (signed-in) user access to any family doc if
+// they know its cloudId. The cloudId is a random UUID and acts as a shared
+// secret between your own devices, which matches the app's current sharing
+// model. Tighten this if you later add real per-user accounts.
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /families/{cloudId}/{document=**} {
+      allow read, write: if request.auth != null;
+    }
+  }
+}
