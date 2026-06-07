@@ -12405,7 +12405,7 @@ const UMPage = {
     _panel:function(){
       var el=document.getElementById('fw-sync-panel');
       if(!el){ el=document.createElement('div'); el.id='fw-sync-panel';
-        el.style.cssText='position:fixed;left:14px;bottom:14px;z-index:99999;font-family:system-ui,Arial,sans-serif;font-size:12px;background:#1f3a5f;color:#fff;border-radius:10px;box-shadow:0 4px 16px rgba(0,0,0,.25);padding:8px 10px;max-width:260px;line-height:1.4';
+        el.style.cssText='position:fixed;left:calc(14px + env(safe-area-inset-left,0px));bottom:calc(14px + env(safe-area-inset-bottom,0px));z-index:2147483000;font-family:system-ui,Arial,sans-serif;font-size:12px;background:#1f3a5f;color:#fff;border-radius:10px;box-shadow:0 4px 16px rgba(0,0,0,.25);padding:8px 10px;max-width:260px;line-height:1.4';
         document.body.appendChild(el); }
       var dot=({off:'#888',connecting:'#e6a700',pushing:'#e6a700',on:'#2ecc71',error:'#e74c3c'})[this.state]||'#888';
       var label=({off:'Not synced',connecting:'Connecting...',pushing:'Syncing...',on:'Synced',error:'Sync error'})[this.state]||'';
@@ -12437,9 +12437,17 @@ const UMPage = {
   window._fwSync=Sync;
   function boot(){ try{ Sync._panel(); }catch(_){}
     var id=localStorage.getItem(LS_KEY);
-    if(id){ Sync.connect(id); }
+    if(id){ setTimeout(function(){ Sync.connect(id); }, 600); }
   }
-  if(document.readyState!=='loading') setTimeout(boot,1800); else document.addEventListener('DOMContentLoaded',function(){setTimeout(boot,1800);});
+  function _bootNow(){
+    if(!document.body){ return setTimeout(_bootNow,50); } // body not parsed yet
+    boot();
+    // Re-assert the panel a couple of times in case it mounted too early or the
+    // app re-rendered over it, so the sync entry point is always reachable.
+    setTimeout(function(){ try{ Sync._panel(); }catch(_){} }, 1200);
+    setTimeout(function(){ try{ Sync._panel(); }catch(_){} }, 3000);
+  }
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',_bootNow); else _bootNow();
 })();
 </script>
 
