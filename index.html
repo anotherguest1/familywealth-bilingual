@@ -12237,7 +12237,7 @@ const UMPage = {
 <div id="ios-install-hint" style="display:none;position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#1c1c1e;color:#fff;border-radius:14px;padding:14px 20px;font-size:12px;text-align:center;z-index:9990;box-shadow:0 8px 30px rgba(0,0,0,.5);max-width:300px;line-height:1.7">
   📱 <strong>FamilyWealth Pro</strong><br>
   <span id="_ios_txt">在 Safari 中点击 <strong>⎙ 分享</strong> → <strong>「添加到主屏幕」</strong></span>
-  <script>(function(){var l=localStorage.getItem('fw_lang')||'zh';if(l==='en'){var e=document.getElementById('_ios_txt');if(e)e.innerHTML='In Safari tap <strong>⎙ Share</strong> → <strong>"Add to Home Screen"</strong>';}})();<\/script>
+  <script>(function(){var l=localStorage.getItem('fw_lang')||'zh';if(l==='en'){var e=document.getElementById('_ios_txt');if(e)e.innerHTML='In Safari tap <strong>⎙ Share</strong> → <strong>"Add to Home Screen"</strong>';}})();</script>
   <div style="margin-top:10px">
     <button onclick="sessionStorage.setItem('fw_banner_off','1');document.getElementById('ios-install-hint').style.display='none'" style="background:rgba(255,255,255,.15);border:none;color:#fff;padding:5px 14px;border-radius:6px;cursor:pointer;font-size:11px" id="_ios_btn">知道了</button>
   </div>
@@ -12249,7 +12249,7 @@ const UMPage = {
 
 <!-- ===== FamilyWealth Cloud Sync (Firestore) — added for cross-device sync ===== -->
 <!-- The Firebase SDK is loaded dynamically (with regional fallback CDNs + retry)
-     inside the script below, instead of static <script src> tags. A blocking
+     inside the script below, instead of static external script tags. A blocking
      static tag to www.gstatic.com hangs the page where Google is blocked (e.g.
      mainland China) or returns nothing offline, which is what produced the
      "Firebase SDK failed to load" error. -->
@@ -12435,7 +12435,8 @@ const UMPage = {
     }
   };
   window._fwSync=Sync;
-  function boot(){ try{ Sync._panel(); }catch(_){}
+  function boot(){
+    try{ Sync._panel(); }catch(e){ try{ console.error('[fwsync] _panel threw:', e); }catch(_){} }
     var id=localStorage.getItem(LS_KEY);
     if(id){ setTimeout(function(){ Sync.connect(id); }, 600); }
   }
