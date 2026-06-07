@@ -8538,7 +8538,10 @@ async function _famRows(store){
     famScoped = rows;
   } else {
     const fid = String(_currentFamily?.id ?? '');
-    famScoped = rows.filter(r => String(r.familyId ?? '') === fid);
+    // No family assigned → see nothing. Without this guard an empty fid would
+    // match every untagged/null-familyId record (e.g. the super-admin's data),
+    // leaking it into brand-new accounts.
+    famScoped = fid ? rows.filter(r => String(r.familyId ?? '') === fid) : [];
   }
   // Apply view scope for data stores only
   if(_DATA_STORES && _DATA_STORES.has(store)){
@@ -9233,7 +9236,7 @@ async function renderMemberDetail(memberFilter){
   const storeNames=window._FW_LANG==='en'?{investments:'Investments',cashAssets:'Cash Equiv.',savings:'Savings',accounts:'Accounts',transactions:'Transactions'}:{investments:'投资',cashAssets:'现金等价物',savings:'储蓄',accounts:'账户',transactions:'流水'};
   let html='';
   for(const s of stores){
-    const rows=(await dbGet(s)).filter(r=>!memberFilter||r.owner===memberFilter);
+    const rows=(await _familyGet(s)).filter(r=>!memberFilter||r.owner===memberFilter);
     if(!rows.length)continue;
     html+=`<div style="margin-bottom:12px"><div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--txt2);padding:5px 0;border-bottom:1px solid var(--bdr);margin-bottom:6px">${storeNames[s]} (${rows.length}${window._FW_LANG==='en'?'':'条'})</div>`;
     html+=`<div style="display:flex;flex-wrap:wrap;gap:6px">`;
@@ -9786,7 +9789,7 @@ const FIELD_LINK_SOURCE={
 async function buildLinkedDatalist(fieldKey){
   const src=FIELD_LINK_SOURCE[fieldKey];
   if(!src)return '';
-  const rows=await dbGet(src.store);
+  const rows=await _familyGet(src.store);
   const vals=[...new Set(rows.map(r=>r[src.key]).filter(Boolean))];
   const dlId=`dl-${fieldKey}`;
   return `<datalist id="${dlId}">${vals.map(v=>`<option value="${v}">`).join('')}</datalist>`;
@@ -10168,7 +10171,7 @@ async function _gsRun(q){
 
   for(const [store,meta] of Object.entries(GS_STORE_META)){
     try{
-      const rows=await dbGet(store);
+      const rows=await _familyGet(store);
       for(const raw of rows){
         const comp=store!=='members'?compute(store,raw):{};
 
@@ -10914,7 +10917,7 @@ async function renderTransactionsPage() {
 // BALANCE SHEET filter pills for sub-tables
 // ═══════════════════════════════════════
 async function _renderBSFilterPills() {
-  const [fas, brws] = await Promise.all([_familyGet('fixedAssets'), dbGet('borrowings')]);
+  const [fas, brws] = await Promise.all([_familyGet('fixedAssets'), _familyGet('borrowings')]);
   const bsMembers = await getMembers();
   const faOwners = [...new Set(fas.map(r=>r.owner).filter(Boolean))];
   const brwOwners = [...new Set(brws.map(r=>r.owner).filter(Boolean))];
@@ -11396,7 +11399,7 @@ async function renderTimelinePage(){
 
   // Load all data
   const[savs,brws,lnds,cshs,invs]=await Promise.all([
-    dbGet('savings'),dbGet('borrowings'),dbGet('lendings'),dbGet('cashAssets'),_familyGet('investments')
+    _familyGet('savings'),_familyGet('borrowings'),_familyGet('lendings'),_familyGet('cashAssets'),_familyGet('investments')
   ]);
 
   _tlEvents=[];
